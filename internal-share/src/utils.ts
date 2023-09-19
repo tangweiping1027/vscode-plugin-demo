@@ -1,27 +1,29 @@
-const fs = require('fs');
-const os = require('os');
-const path = require('path');
-const vscode = require('vscode');
-const exec = require('child_process').exec;
-const { globSync } = require('glob')
-const formatPath = (path) => {
+import * as fs from 'node:fs'
+import * as os from 'node:os'
+import * as path from 'node:path'
+import * as vscode from 'vscode'
+import { globSync } from 'glob'
+import type { TextDocument, ExtensionContext, Uri } from 'vscode'
+import { exec } from 'child_process'
+
+const formatPath = (path: string) => {
     return path.split(/[\\/]/g).filter(Boolean).join('/')
 }
 
-const util = {
+export const utils = {
     formatPath,
     getI18nKeys() {
-        const root = util.getProjectPath()
+        const root = this.getProjectPath()
         const filePaths = globSync(`${root}/**/{zh,en}.json`, {
             ignore: 'node_modules/**',
         })
         const keyMap = new Map()
         filePaths.forEach(filePath => {
-            const name = filePath.split(/[\\/]/g).pop().split('.').shift()
-            const i18n = JSON.parse(fs.readFileSync(filePath))
+            const name = filePath.split(/[\\/]/g).pop()?.split('.').shift() as 'zh' | 'en'
+            const i18n = JSON.parse(fs.readFileSync(filePath, 'utf8'))
             Object.keys(i18n).forEach(key => {
                 if (!keyMap.has(key)) {
-                    keyMap.set(key, {})
+                    keyMap.set(key, {} as { zh?: string, en?: string })
                 }
                 keyMap.get(key)[name] = i18n[key]
             })
@@ -35,7 +37,7 @@ const util = {
      * getProjectPath() 会自动从 activeTextEditor 拿document对象，如果没有拿到则报错
      * @param {*} document 
      */
-    getProjectPath(document) {
+    getProjectPath(document?: TextDocument | null) {
         if (!document) {
             document = vscode.window.activeTextEditor ? vscode.window.activeTextEditor.document : null;
         }
@@ -43,10 +45,13 @@ const util = {
             this.showError('当前激活的编辑器不是文件或者没有文件被打开！');
             return '';
         }
-        const currentFile = (document.uri ? document.uri : document).fsPath;
+        const currentFile = ((document.uri ? document.uri : document) as Uri).fsPath;
         let projectPath = null;
 
-        let workspaceFolders = vscode.workspace.workspaceFolders.map(item => item.uri.path);
+        let workspaceFolders = vscode.workspace.workspaceFolders?.map(item => item.uri.path);
+        if (!workspaceFolders) {
+            return '';
+        }
         // 由于存在Multi-root工作区，暂时没有特别好的判断方法，先这样粗暴判断
         // 如果发现只有一个根文件夹，读取其子文件夹作为 workspaceFolders
         if (workspaceFolders.length == 1 && workspaceFolders[0] === vscode.workspace.rootPath) {
@@ -72,7 +77,7 @@ const util = {
     /**
      * 获取当前工程名
      */
-    getProjectName: function (projectPath) {
+    getProjectName: function (projectPath: string) {
         return path.basename(projectPath);
     },
     getPluginPath() {
@@ -82,49 +87,47 @@ const util = {
      * 将一个单词首字母大写并返回
      * @param {*} word 某个字符串
      */
-    upperFirstLetter: function (word) {
+    upperFirstLetter: function (word: string) {
         return (word || '').replace(/^\w/, m => m.toUpperCase());
     },
     /**
      * 将一个单词首字母转小写并返回
      * @param {*} word 某个字符串
      */
-    lowerFirstLeter: function (word) {
+    lowerFirstLeter: function (word: string) {
         return (word || '').replace(/^\w/, m => m.toLowerCase());
     },
     /**
      * 全局日志开关，发布时可以注释掉日志输出
      */
-    log: function (...args) {
+    log: function (...args: any[]) {
         console.log(...args);
     },
     /**
      * 全局日志开关，发布时可以注释掉日志输出
      */
-    error: function (...args) {
+    error: function (...args: any[]) {
         console.error(...args);
     },
     /**
      * 弹出错误信息
      */
-    showError: function (info) {
+    showError: function (info: string) {
         vscode.window.showErrorMessage(info);
     },
     /**
      * 弹出提示信息
      */
-    showInfo: function (info) {
+    showInfo: function (info: string) {
         vscode.window.showInformationMessage(info);
     },
-    findStrInFolder: function (folderPath, str) {
 
-    },
     /**
      * 从某个文件里面查找某个字符串，返回第一个匹配处的行与列，未找到返回第一行第一列
      * @param filePath 要查找的文件
      * @param reg 正则对象，最好不要带g，也可以是字符串
      */
-    findStrInFile: function (filePath, reg) {
+    findStrInFile: function (filePath: string, reg: string | RegExp) {
         const content = fs.readFileSync(filePath, 'utf-8');
         reg = typeof reg === 'string' ? new RegExp(reg, 'm') : reg;
         // 没找到直接返回
@@ -142,24 +145,22 @@ const util = {
     /**
      * 获取某个字符串在文件里第一次出现位置的范围，
      */
-    getStrRangeInFile: function (filePath, str) {
+    getStrRangeInFile: function (filePath: string, str: string) {
         var pos = this.findStrInFile(filePath, str);
         return new vscode.Range(new vscode.Position(pos.row, pos.col), new vscode.Position(pos.row, pos.col + str.length));
     },
     /**
      * 简单的检测版本大小
      */
-    checkVersion: function (version1, version2) {
-        version1 = parseInt(version1.replace(/\./g, ''));
-        version2 = parseInt(version2.replace(/\./g, ''));
-        return version1 > version2;
+    checkVersion: function (version1: string, version2: string): boolean {
+        return parseInt(version1.replace(/\./g, '')) > parseInt(version2.replace(/\./g, ''));
     },
     /**
      * 获取某个扩展文件绝对路径
      * @param context 上下文
      * @param relativePath 扩展中某个文件相对于根目录的路径，如 images/test.jpg
      */
-    getExtensionFileAbsolutePath: function (context, relativePath) {
+    getExtensionFileAbsolutePath: function (context: ExtensionContext, relativePath: string) {
         return path.join(context.extensionPath, relativePath);
     },
     /**
@@ -168,14 +169,14 @@ const util = {
      * @param context 上下文
      * @param relativePath 扩展中某个文件相对于根目录的路径，如 images/test.jpg
      */
-    getExtensionFileVscodeResource: function (context, relativePath) {
+    getExtensionFileVscodeResource: function (context: ExtensionContext, relativePath: string) {
         const diskPath = vscode.Uri.file(path.join(context.extensionPath, relativePath));
         return diskPath.with({ scheme: 'vscode-resource' }).toString();
     },
     /**
      * 在Finder中打开某个文件或者路径
      */
-    openFileInFinder: function (filePath) {
+    openFileInFinder: function (filePath: string) {
         if (!fs.existsSync(filePath)) {
             this.showError('文件不存在：' + filePath);
         }
@@ -195,7 +196,7 @@ const util = {
      * @param {*} path 文件绝对路径
      * @param {*} text 可选，如果不为空，则选中第一处匹配的对应文字
      */
-    openFileInVscode: function (path, text) {
+    openFileInVscode: function (path: string, text: string) {
         let options = undefined;
         if (text) {
             const selection = this.getStrRangeInFile(path, text);
@@ -204,36 +205,16 @@ const util = {
         vscode.window.showTextDocument(vscode.Uri.file(path), options);
     },
     /**
-     * 用JD-GUI打开jar包
-     */
-    openJarByJdGui: function (jarPath) {
-        // 如何选中文件有待完善
-        const jdGuiPath = vscode.workspace.getConfiguration().get('eggHelper.jdGuiPath');
-        if (!jdGuiPath) {
-            this.showError('JD-GUI路径不能为空！');
-            return;
-        }
-        if (!fs.existsSync(jdGuiPath)) {
-            this.showError('您还没有安装JD-GUI，请安装完后到vscode设置里面找到HSF助手并进行路径配置。');
-            return;
-        }
-        if (!fs.existsSync(jarPath)) {
-            this.showError('jar包未找到：' + jarPath);
-            return;
-        }
-        exec(`open ${jarPath} -a ${jdGuiPath}`);
-    },
-    /**
      * 使用默认浏览器中打开某个URL
      */
-    openUrlInBrowser: function (url) {
+    openUrlInBrowser: function (url: string) {
         exec(`open '${url}'`);
     },
     /**
      * 递归遍历清空某个资源的require缓存
      * @param {*} absolutePath
      */
-    clearRequireCache(absolutePath) {
+    clearRequireCache(absolutePath: string) {
         const root = require.cache[absolutePath];
         if (!root) return;
         if (root.children) {
@@ -245,40 +226,18 @@ const util = {
         delete require.cache[absolutePath];
     },
     /**
-     * 动态require，和普通require不同的是，加载之前会先尝试删除缓存
-     * @param {*} modulePath 
-     */
-    dynamicRequire(modulePath) {
-        this.clearRequireCache(modulePath);
-        return require(modulePath);
-    },
-    /**
      * 读取properties文件
      * @param {*} filePath 
      */
-    readProperties(filePath) {
+    readProperties(filePath: string) {
         const content = fs.readFileSync(filePath, 'utf-8');
         let rows = content.split(os.EOL);
         rows = rows.filter(row => row && row.trim() && !/^#/.test(row));
-        const result = {};
+        const result = {} as Record<string, string>;
         rows.forEach(row => {
             let temp = row.split('=');
             result[temp[0].trim()] = temp[1].trim();
         });
         return result;
     },
-    /**
-     * 比较2个对象转JSON字符串后是否完全一样
-     * 特别注意，由于JS遍历对象的无序性（部分浏览器是按照添加顺序遍历的）导致同样的对象，
-     * 转成JSON串之后反而不一样，所以这里采用其它方式实现。
-     * @param {*} obj1 
-     * @param {*} obj2 
-     */
-    jsonEquals(obj1, obj2) {
-        let s1 = this.formatToSpecialJSON(obj1, '', true);
-        let s2 = this.formatToSpecialJSON(obj2, '', true);
-        return s1 === s2;
-    }
 };
-
-module.exports = util;
